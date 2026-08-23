@@ -211,6 +211,8 @@ offer(e)：
 
 若 `e` 成为**新的最早到期**（堆顶），则 `leader = null; available.signal()`，让被唤醒的线程接班按更短延时计时。
 
+![image-20260823223921632](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/image-20260823223921632.png)
+
 **SynchronousQueue**
 
 **LinkedTransferQueue**

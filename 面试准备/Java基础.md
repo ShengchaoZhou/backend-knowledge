@@ -230,6 +230,28 @@ while (true) {
 }
 ```
 
+服务端收到消息的过程：
+
+```
+客户端发送消息
+      ↓
+操作系统内核 Socket 接收缓冲区
+      ↓
+底层 socket / fd 变成“可读状态”
+      ↓
+Selector 监听到这个 Channel 可读
+      ↓
+Java 线程拿到 OP_READ 事件
+      ↓
+channel.read(javaBuffer)
+      ↓
+数据从内核缓冲区读取到 Java ByteBuffer
+      ↓
+业务代码从 ByteBuffer 读取数据
+```
+
+零拷贝：Java NIO 中的零拷贝主要是为了减少数据在内核态和用户态之间的重复拷贝。比如传统的文件网络发送，需要先把文件数据从内核缓冲区拷贝到 Java 用户态 Buffer，再从用户态 Buffer 拷贝回 Socket 的内核缓冲区。而通过 `FileChannel.transferTo()` 等方式，底层可以利用 Linux 的 `sendfile` 等机制，让数据主要在内核中完成文件到网络的传输，从而避免经过 Java 用户态 Buffer，减少 CPU 拷贝和上下文切换，提高大文件传输效率。
+
 #### 3. AIO
 
 - 全异步非阻塞，基于 **操作系统的异步IO能力**（需要底层支持，如 Linux epoll + aio）。
