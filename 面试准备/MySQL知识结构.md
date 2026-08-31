@@ -533,6 +533,8 @@ B+树（少数系统/存储引擎）。
 
 OFFSET 很大导致扫描/跳过大量行
 
+为什么要把记录都返回给server层？因为 **`OFFSET` 属于 Server 层执行器的查询语义**，而 InnoDB 存储引擎主要负责“按照执行计划提供下一条记录”。
+
 1. 使用聚簇索引时
 
 当 OFFSET 很大时，直接使用
@@ -769,7 +771,7 @@ select * from page  where id >= (select id from page order by id limit 10000, 1)
 
 **作用**
 
-如果没有意向锁，当请求表级独占写锁时，需要遍历表中所有记录以确认没有记录锁，这会非常低效；而有了意向锁，可快速判断表中是否存在被加行锁的记录，大幅提升加锁判断的效率。
+如果没有意向锁，当请求表级独占写锁时，需要遍历表中所有记录以确认没有记录锁，这会非常低效；而有了意向锁，**可快速判断表中是否存在被加行锁的记录**，大幅提升加锁判断的效率。
 
 **如何加锁**
 
@@ -839,7 +841,38 @@ InnoDB 在插入含 `AUTO_INCREMENT` 字段的记录时使用的一种特殊表�
 
 ## 死锁
 
+**死锁举例**
 
+```
+连接 A                         连接 B
+
+BEGIN;
+
+UPDATE account
+SET balance = balance - 10
+WHERE id = 1;
+
+                               BEGIN;
+
+                               UPDATE account
+                               SET balance = balance - 20
+                               WHERE id = 2;
+
+UPDATE account
+SET balance = balance + 10
+WHERE id = 2;
+-- 阻塞
+
+                               UPDATE account
+                               SET balance = balance + 20
+                               WHERE id = 1;
+                               -- 发生死锁
+```
+
+**死锁解除**
+
+- 设置事务等待锁的超时时间
+- 开启主动死锁检测
 
 # 引擎
 

@@ -51,11 +51,35 @@ Stream：listpack+radix-tree
 | 查找方式 | 从**头顺序扫描（线性）**(CPU局部性好)，遇到目标字段后再取紧跟其后的 value |
 | 逻辑语义 | 在命令层面仍然是 `HSET/HGET/HMGET…`，对客户端完全透明        |
 
+List、Stream、专业消息队列对比：
+
+List：客户端重启不能读取历史消息；不能重复消费一个消息；需要自己实现全局唯一ID。
+
+Stream：Redis本省的持久化会有延迟，导致消息丢失；消息挤压导致内存爆炸。
+
 ## 底层数据结构
+
+### Redis数据库结构
+
+![image-20260825213450273](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/image-20260825213450273.png)
+
+```c
+typedef struct redisDb {
+    dict *dict;           // 保存真正的 key-value
+    dict *expires;        // 保存设置了过期时间的 key
+    dict *blocking_keys;  // 阻塞客户端正在等待的 key
+    dict *ready_keys;     // 已经 ready、可以唤醒阻塞客户端的 key
+    dict *watched_keys;   // 被 WATCH 的 key
+
+    int id;               // DB 编号
+    long long avg_ttl;    // 平均 TTL
+    ...
+} redisDb;
+```
 
 ### SDS
 
-对比C语言字符串：O(1)获取长度，不需要\0（也就可以读\0，更加安全)，自动扩容，
+**对比C语言**字符串：O(1)获取长度，不需要\0（\0是C语言字符串结束的标志）也就可以读\0，更加安全，会自动扩容。
 
 ### skiplist
 
@@ -83,7 +107,7 @@ ZSet为什么使用跳表？（与其他数据结构的对比）
 
 ### listpack
 
-listpack的对比ziplist的优势有：额外空间占用小，不会因为存着前一个节点的长度而导致级联更新。
+listpack的对比ziplist的优势有：额外空间占用小，不会因为存着前一个节点的长度而导致级联更新。但是ziplist 和 listpack 都是连续内存结构，所以在中间插入/删除导致长度变化时，都可能需要移动后面的那一段内存
 
 <img src="./assets/image-20250825120539838.png" alt="image-20250825120539838" style="zoom: 33%;" />
 
@@ -92,6 +116,46 @@ listpack的对比ziplist的优势有：额外空间占用小，不会因为存�
 ### intset
 
 就是一个数组，如果都是8位以内，用8位存储，如果出现16位，则全部**升级**为16位存储，不支持降级。
+
+### GEOHash
+
+范围查询过程
+
+```
+Beijing
+   ↓
+从已有 ZSet 中取 Beijing 的 score
+   ↓
+score 解码
+   ↓
+得到 Beijing 经纬度
+   ↓
+根据 圆心 + 100km
+计算需要搜索的 geohash 区域
+```
+
+这一步会**临时计算一些 geohash 范围**，例如概念上：
+
+```
+              北
+        ┌────┬────┬────┐
+        │ NW │ N  │ NE │
+        ├────┼────┼────┤
+        │ W  │中心│ E  │
+        ├────┼────┼────┤
+        │ SW │ S  │ SE │
+        └────┴────┴────┘
+```
+
+每个格子对应某一段 geohash，而 geohash 又可以转换成：
+
+```
+score 最小值 ~ score 最大值
+```
+
+然后 Redis 直接去 ZSet 中把候选元素选出
+
+![image-20260825220645662](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/image-20260825220645662.png)
 
 ## 数据结构常见应用
 
@@ -147,7 +211,7 @@ https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247484905&idx=1&sn=a74ed5
 
 :star:**先执行写命令，再写到AOF内存缓冲**（与MySQL的wal机制区别，MySQL是先对buffer pool中缓存执行命令，再写日志，日志刷盘，最后把脏页写回，**WAL指的是对于磁盘**，也就是后面两步），AOF缓冲经过write() 写入内核页缓存，内核页缓存经过fsync()函数落盘。
 
-内核页缓冲落盘策略，fsync()函数的时机不同：always，everysec，no（由操作系统决定）
+内核页缓冲落盘策略，fsync()函数的时机不同：always，everysec，no（则由操作系统决定）
 
 ### AOF文件的重写机制
 
@@ -323,7 +387,7 @@ Redis采用**惰性+定期**
 ## 内存淘汰策略
 
 - 不淘汰
-- 淘汰：在设置了过期时间的数据中淘汰、所有数据中淘汰。淘汰算法都是常见的那些。
+- 淘汰：在设置了过期时间的数据中淘汰或者从所有数据中淘汰。淘汰算法都是常见的那些。
 
 ## 性能优化
 
