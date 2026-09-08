@@ -1,22 +1,6 @@
-# Agent 工具调用与协作生态面试题
+# Agent 工具调用
 
-## 1. 什么是 Function Calling？它的工作流程是什么？
-
-Function Calling（函数调用）是一种让 LLM 以**结构化方式选择并调用外部工具**的机制。开发者先向模型描述可用函数的名称、用途和参数结构，模型根据用户意图判断是否需要调用函数；如果需要，模型会生成函数名和符合约定格式的参数，再由宿主程序执行真正的函数。
-
-需要特别注意：**LLM 本身通常不会直接执行函数。**它负责理解意图并生成调用请求，真正访问数据库、调用 API、运行代码或修改外部系统的是 Agent、应用程序或工具运行时。
-
-一个典型的 Function Calling 流程如下：
-
-1. **定义函数**：开发者使用 JSON Schema 等方式描述函数名、功能、参数类型、必填字段和取值约束。
-2. **发送请求**：应用将用户问题、对话上下文和可用函数定义一起发送给 LLM。
-3. **选择函数**：LLM 判断是直接回答，还是生成一个或多个 Function Call。
-4. **生成参数**：LLM 按照函数 Schema 输出函数名和结构化参数。
-5. **校验与执行**：宿主程序校验参数、权限和调用风险，然后执行本地函数或外部 API。
-6. **返回结果**：应用将函数执行结果作为 Tool Result 放回对话上下文。
-7. **生成最终回答**：LLM 根据用户问题和工具返回值，整理出自然语言答案；如果信息不足，也可以继续调用其他函数。
-
-完整过程可以概括为：
+## 1. 什么是 Function Calling？
 
 **用户请求 → LLM 选择函数并生成参数 → 应用校验并执行函数 → 执行结果返回 LLM → LLM 生成最终答案。**
 
@@ -55,25 +39,9 @@ Function Calling（函数调用）是一种让 LLM 以**结构化方式选择并
 }
 ```
 
-应用收到调用请求后，校验日期和城市参数，调用真实天气服务，再把查询结果返回给模型。模型最后生成“北京明天有小雨，最高气温 30℃”之类的自然语言回答。
-
-Function Calling 与普通文本生成的主要区别是：普通文本生成只返回自然语言，格式可能不稳定；Function Calling 通过函数定义和参数 Schema 约束模型输出，更方便程序解析并连接外部系统。但是，Schema 只能提高结构正确率，不能保证参数在业务上一定正确，也不能保证工具结果可信。
-
-实际使用时需要注意：
-
-- **参数校验**：不能直接信任模型生成的参数，应检查类型、范围、格式和必填项。
-- **权限控制**：根据当前用户身份限制可见工具及可操作的数据，不能让模型绕过鉴权。
-- **高风险操作确认**：转账、删除、发送消息等有副作用的操作，应进行二次确认或审批。
-- **错误与超时处理**：工具可能失败、超时或返回空结果，需要设置重试、降级和最大调用次数。
-- **提示注入防护**：外部内容和工具返回值都可能包含恶意指令，不能把它们当成高优先级系统指令。
-- **幂等性**：对于创建订单、付款等写操作，应使用幂等键，避免重试导致重复执行。
-- **可观测性**：记录函数选择、参数、执行结果、耗时和错误，便于审计与问题定位，同时注意脱敏。
-
-Function Calling 是很多 Tool-Using Agent 的基础，但二者不完全等价：**Function Calling 解决“如何把模型的工具调用意图变成结构化请求”，Agent 则进一步负责规划、记忆、循环执行、错误恢复和完成条件判断。**
-
-简单来说：**Function Calling 让 LLM 决定“调用哪个函数、传什么参数”，由应用程序负责“安全地执行函数并返回结果”；它是模型连接外部数据和真实业务能力的重要桥梁。**
-
 ## 2. 模型是如何学会工具调用的？
+
+![ChatGPT Image 2026年9月5日 17_11_19](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/ChatGPT Image 2026年9月5日 17_11_19.png)
 
 模型的工具调用能力通常不是由某一个环节单独产生的，而是由**预训练、工具调用数据微调、偏好对齐和运行时约束**共同形成的。
 
@@ -149,14 +117,6 @@ LLM 在大规模文本和代码上进行预训练后，已经具备了一些工�
 
 即使输出完全符合 JSON Schema，也可能出现城市选错、日期理解错误或调用了不合适的工具，因此不能只依赖格式约束。
 
-### 6. 工具执行与模型训练是两个不同环节
-
-训练样例可以只包含预先准备好的工具调用轨迹，模型不一定在训练时真的连接并执行了每个 API。到了运行阶段，模型仍然只是生成调用请求，真正的函数由外部程序执行。
-
-如果系统希望模型从实际执行结果中持续改进，可以收集成功率、参数错误、用户纠正和工具异常等日志，经过脱敏、筛选和标注后形成新的训练或评测数据，而不是让线上模型自动修改自身参数。
-
-简单来说：**预训练让模型看懂语言、代码和 API，监督微调让它学会工具调用格式与流程，偏好对齐让它学会何时调用，运行时 Schema 告诉它当前有哪些工具，结构化解码和应用校验则保证格式与执行安全。模型学到的是通用的“使用工具的方法”，而不是记住所有具体工具。**
-
 ## 3. 什么是 MCP？它的架构和工作流程是什么？
 
 MCP（Model Context Protocol，模型上下文协议）是一套用于连接 AI 应用与外部工具、数据源和提示模板的开放协议。它规定了客户端和服务端如何发现能力、交换消息、调用工具及返回结果，使同一个 MCP Server 可以被多个支持 MCP 的 AI 应用复用。
@@ -199,11 +159,7 @@ MCP 的数据层基于 **JSON-RPC 2.0**，定义请求、响应、通知、错�
 1. **stdio**：Host 将 MCP Server 作为本地子进程启动，通过标准输入和标准输出交换消息，适合本地文件、代码和命令行工具。
 2. **Streamable HTTP**：Client 通过 HTTP 与独立部署的远程 Server 通信，并可以按需使用 SSE 接收流式消息，适合企业服务和云端 API。
 
-MCP 不是只能用于远程网络服务。Server 指的是提供 MCP 能力的程序，与它运行在本机还是远程无关。
-
 ### 四、一次 MCP 工具调用的典型流程
-
-以当前稳定协议的典型流程为例：
 
 1. Host 创建 MCP Client，并连接配置好的 MCP Server。
 2. Client 与 Server 初始化连接，协商协议版本和双方支持的能力。
@@ -214,70 +170,7 @@ MCP 不是只能用于远程网络服务。Server 指的是提供 MCP 能力的�
 7. Server 调用真实数据库、文件系统或业务 API，并将执行结果返回 Client。
 8. Host 把工具结果加入模型上下文，LLM 继续调用其他工具或生成最终答案。
 
-完整过程可以概括为：
-
-**Host 连接 Server → 发现能力 → 将工具提供给 LLM → LLM 选择工具 → Host 校验 → Client 调用 Server → 结果返回 LLM → 生成答案。**
-
-例如，一个数据库 MCP Server 可以同时提供：
-
-- Tool：`query_database`，执行经过限制的数据库查询；
-- Resource：数据库表结构和字段说明；
-- Prompt：指导模型按照业务口径分析数据的提示模板。
-
-Host 可以先读取 Schema 作为上下文，再让模型调用查询工具，最后根据查询结果生成分析报告。
-
-### 五、MCP 和 Function Calling 有什么区别？
-
-二者处在不同层次，并且经常组合使用：
-
-| 对比项 | Function Calling | MCP |
-| --- | --- | --- |
-| **主要解决的问题** | 模型如何用结构化格式表达“调用哪个函数、传什么参数” | AI 应用如何以统一协议连接、发现和调用外部能力 |
-| **关注范围** | 函数定义、工具选择和参数生成 | Host、Client、Server、生命周期、能力发现、传输和消息格式 |
-| **是否规定工具来自哪里** | 通常不规定，由应用自行注册和执行 | Server 可以通过标准协议动态暴露工具、资源和 Prompts |
-| **是否由模型直接执行** | 否，外部应用执行 | 否，MCP Server 或其下游系统执行 |
-
-在实际系统中，Host 经常先通过 MCP 的 `tools/list` 获得工具 Schema，再把它转换成当前 LLM 支持的 Function Calling 格式。模型生成 Function Call 后，Host 再将调用路由为 MCP 的 `tools/call`。
-
-因此：**Function Calling 更像模型与应用之间的调用接口，MCP 更像应用与工具提供方之间的标准连接协议。MCP 不替代 Function Calling，也不负责模型的工具选择推理。**
-
-### 六、MCP 和普通 API 有什么区别？
-
-MCP Server 底层仍然经常调用 REST、GraphQL、数据库 SDK 或本地函数。MCP 并不是要替代所有业务 API，而是在它们上面增加一个面向 AI 应用的标准适配层，提供统一的能力描述、动态发现、调用格式和上下文交换方式。
-
-普通 API 主要面向确定性程序，调用方通常提前知道接口；MCP 更强调让 AI Host 在运行时发现有哪些 Tools、Resources 和 Prompts，并把它们安全地提供给模型。
-
-### 七、MCP 的优势和局限是什么？
-
-主要优势包括：
-
-- **降低集成成本**：Server 实现一次后，可以被多个兼容的 AI Host 复用。
-- **动态发现能力**：Client 可以查询当前有哪些工具、资源和提示模板。
-- **解耦模型与外部系统**：Server 不需要绑定某个特定 LLM 厂商。
-- **本地与远程统一**：同一种协议可以连接本地进程和云端服务。
-- **能力边界清晰**：不同 Server 可以分别管理自己的数据、工具和权限。
-
-主要局限包括：
-
-- MCP 只统一协议，不能保证 Server 的工具描述、返回数据和业务语义正确；
-- 工具过多会增加上下文 Token、工具选择错误率和路由复杂度；
-- 远程调用仍然存在网络延迟、超时、重试和服务可用性问题；
-- Client、Server 和不同协议版本之间可能出现兼容性差异；
-- 引入第三方 Server 会扩大权限、数据泄漏、Prompt Injection 和供应链攻击面。
-
-### 八、MCP 有哪些安全注意事项？
-
-Host 不能因为一个 Server 使用了 MCP 就默认信任它。生产环境至少需要：
-
-- 只连接可信或经过审核的 Server，并校验安装来源和版本；
-- 根据用户和任务动态限制可见工具，遵循最小权限原则；
-- 对文件写入、删除、发送消息和支付等操作进行用户确认；
-- 在 Host 和 Server 两端校验参数，防止命令注入、路径穿越、SSRF 和越权访问；
-- 将 Tool、Resource 的内容视为不可信数据，防御其中的 Prompt Injection；
-- 对远程连接使用认证、授权和安全传输，并避免把凭证暴露给 LLM；
-- 设置超时、速率限制、最大返回大小和审计日志，敏感字段需要脱敏。
-
-### 九、用一个最小代码示例理解 Host、Client 和 Server
+### 五、最小代码示例
 
 下面使用官方 Python SDK 和本地 `stdio` 传输演示三者的关系。示例有两个文件：
 
@@ -391,22 +284,7 @@ uv run python host.py
 工具结果： {'city': '北京', 'condition': '晴', 'temperature': 30}
 ```
 
-这个例子中各部分的职责是：
-
-- **Host 是整个 `host.py` 应用**：负责管理用户请求、LLM、工具暴露、权限校验和最终答案；
-- **Client 是 `ClientSession`**：它属于 Host，负责 `initialize`、`tools/list`、`tools/call` 等协议通信；
-- **Server 是 `server.py` 进程**：它声明工具 Schema，接收调用请求，并执行真正的业务代码；
-- **LLM 不是 MCP Client**：LLM 只看到 Host 提供的工具定义并生成调用意图，Host 才是连接模型和 MCP Client 的协调者。
-
-SDK 在底层完成 JSON-RPC 消息的序列化与传输。这个示例使用 `stdio`，所以 Host 会自动启动本地 Server；如果改成 Streamable HTTP，Server 会独立部署，Client 改为通过 URL 连接，但 Host—Client—Server 的职责划分基本不变。
-
-需要注意，MCP 规范演进较快。截至 2026 年 7 月 19 日，最新正式发布的稳定规范仍是 `2025-11-25`；官方已经发布 `2026-07-28` 候选规范，计划将协议核心改为无状态并调整生命周期等机制，但在正式发布前不应把候选规范当作稳定行为。实际开发和面试回答都应说明所依据的协议版本。
-
-简单来说：**MCP 为 AI 应用和外部能力之间定义了统一的连接协议；Server 暴露 Tools、Resources 和 Prompts，Host 负责模型、上下文、权限与编排，Client 负责协议通信。Function Calling 解决模型如何提出工具调用，MCP 解决工具如何被标准化发现、连接和执行。**
-
-参考：[MCP 架构说明](https://modelcontextprotocol.io/docs/learn/architecture)、[MCP Server 核心能力](https://modelcontextprotocol.io/docs/learn/server-concepts)、[MCP 2025-11-25 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[MCP Python SDK v1.x](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)、[MCP 2026-07-28 候选规范公告](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/)
-
-## 4. 什么是 Skill？Skill 的工作原理是什么？
+## 4. Skill 的工作原理是什么？
 
 Skill（技能）是一种向 Agent 提供**可复用的专业知识、操作步骤和任务资源**的能力包。它将某类任务的“做事方法”整理成 Agent 可以按需加载的说明，使模型不需要重新训练，也能更稳定地执行代码审查、数据分析、文档处理或企业内部流程等任务。
 
@@ -446,7 +324,7 @@ description: 提取并总结 PDF，生成结构化报告。处理 PDF、扫描�
 - `references/` 保存只在特定场景下才需要读取的详细知识；
 - `assets/` 保存报告模板、配置样例、图片等产物资源。
 
-### 一、Skill 的核心原理：渐进式披露
+### Skill 的核心原理：渐进式披露
 
 如果 Agent 在启动时把所有 Skill 的完整内容都放入上下文，会浪费大量 Token，也容易造成指令互相干扰。因此，Skill 通常采用 Progressive Disclosure（渐进式披露），分三层加载：
 
@@ -472,81 +350,13 @@ Agent 根据 name 和 description 匹配 Skill
 
 这种设计兼顾了两个目标：Agent 可以安装很多 Skill，但每次任务只为少量相关 Skill 支付上下文 Token；同时，复杂细节又能在真正需要时被加载。
 
-### 二、Skill 是如何被触发的？
-
-Skill 通常有两种触发方式：
-
-1. **显式触发**：用户直接指定“使用 `pdf-report` Skill 处理这个文件”。
-2. **自动触发**：Agent 根据用户任务与各 Skill 的 `description` 判断哪个 Skill 适用。
-
-具体匹配算法不是 Skill 文件格式强制规定的。不同 Agent 可以使用 LLM 判断、关键词规则、Embedding 检索或单独的 Router。无论采用哪种方式，`description` 都应该同时写清楚“能做什么”和“什么时候使用”；描述过窄会漏触发，描述过宽则会误触发。
-
-如果多个 Skill 同时适用，Agent 可以组合使用，例如先用 PDF Skill 提取文档，再用数据分析 Skill 计算指标，最后用演示文稿 Skill 生成幻灯片。多个 Skill 的指令出现冲突时，应由 Host 根据系统指令、用户要求、权限和优先级进行处理。
-
-### 三、Skill 为什么不需要重新训练模型？
-
-Skill 的说明会在推理时被加入模型上下文，本质上属于 Context Engineering。LLM 已经具备阅读说明、执行步骤和调用工具的通用能力，Skill 只是把某个领域的程序性知识临时提供给它。
-
-因此，安装 Skill 通常不会修改模型参数，也不会让模型永久“学会”这项能力：
-
-- 当前任务激活 Skill 后，模型按照 Skill 内容行动；
-- 未激活时，完整说明不会进入上下文；
-- 删除或修改 Skill 后，后续任务会使用新的说明；
-- 任务执行日志可以用于改进 Skill，但不会自动更新模型权重。
-
-Skill 可以包含可执行脚本。此时 LLM 负责判断何时以及如何使用脚本，而确定性的解析、转换和校验逻辑由脚本完成。这样可以把模型擅长的语义理解与程序擅长的稳定执行结合起来。
-
-### 四、Skill 与 Prompt、Function Calling、MCP、RAG 有什么区别？
-
-| 概念 | 主要解决的问题 | 典型内容 |
-| --- | --- | --- |
-| **System Prompt** | Agent 在整个会话中应遵守哪些全局规则 | 身份、总体行为、安全边界 |
-| **Skill** | 某一类任务应该按照什么流程完成 | 操作步骤、判断规则、示例、脚本、模板 |
-| **Function Calling** | 模型如何结构化表达一次工具调用 | 函数名和参数 |
-| **MCP** | AI 应用如何标准化发现、连接和调用外部能力 | Tools、Resources、Prompts 和通信协议 |
-| **RAG** | 如何从外部知识库找回与当前问题相关的事实 | 文档检索、Rerank 和上下文构造 |
-| **Fine-tuning** | 如何通过训练改变模型自身的行为和能力 | 训练数据和模型参数更新 |
-
-它们可以组合使用。例如，一个“生成销售周报”Skill 可以规定完整工作流程：先通过 MCP 连接销售数据库，使用 Function Calling 查询指标，再通过 RAG 找到业务规则，最后套用 Skill 自带的模板生成报告。
-
-可以把它们简单理解为：
-
-- **Skill 告诉 Agent 怎么做；**
-- **Function Calling 让模型表达要调用什么；**
-- **MCP 让应用连接到可以执行的工具；**
-- **RAG 为任务补充相关知识。**
-
-### 五、Skill 的优势和局限是什么？
-
-主要优势包括：
-
-- **复用性**：将一次成功经验整理成可重复使用的工作流程；
-- **一致性**：固定关键步骤、输出格式和检查规则，减少模型自由发挥；
-- **Token 效率**：通过渐进式披露，只加载当前任务需要的内容；
-- **可维护性**：Skill 是普通文件，可以进行版本控制、Code Review、测试和回滚；
-- **可移植性**：遵循同一开放格式的 Skill 可以在兼容的 Agent 产品之间迁移；
-- **可组合性**：多个小 Skill 可以组合完成更复杂的任务。
-
-主要局限包括：
-
-- Skill 仍然依赖 LLM 正确理解和遵循说明，不能保证每次执行完全一致；
-- `description` 写得不好会造成漏触发或误触发；
-- 多个 Skill、系统指令和用户要求之间可能产生冲突；
-- Skill 内容和依赖资源会占用上下文，过长的说明可能降低模型注意力；
-- 不同 Agent 对自动触发、工具权限和可选字段的支持可能不同；
-- 外部 Skill 可能包含恶意指令、危险脚本或被篡改的依赖，存在供应链风险。
-
-因此，安装第三方 Skill 前应审查 `SKILL.md` 和脚本，限制文件、网络和命令权限，对写入、删除、发送及支付等操作保留用户确认，并对 Skill 进行版本固定、测试和来源校验。
-
-简单来说：**Skill 是给 Agent 使用的可复用“任务说明书和资源包”。它不修改模型权重，而是通过渐进式披露，在任务匹配时把操作流程加载到上下文，再让 Agent 按需使用脚本、参考资料、模板和外部工具完成任务。**
-
-参考：[Agent Skills 概览](https://agentskills.io/home)、[Agent Skills 格式规范](https://agentskills.io/specification)、[Agent Skills 客户端实现原理](https://agentskills.io/client-implementation/adding-skills-support)、[OpenAI Skills 说明](https://help.openai.com/en/articles/20001066-skills-in-chatgpt)
-
 ## 5. 什么是 A2A 协议？
 
 A2A（Agent2Agent，Agent-to-Agent）是一套用于**独立 AI Agent 之间发现能力、交换消息、委派任务和返回结果**的开放协议。它最初由 Google 提出，后来交由 Linux Foundation 托管。
 
 A2A 主要解决不同团队、框架、语言或厂商开发的 Agent 如何互相协作的问题。通信双方不需要知道对方内部使用了什么模型、Prompt、Memory 或工具，只需要了解对方公开的能力和交互接口，因此它强调 **Opaque Agent（内部实现不透明的 Agent）之间的互操作**。
+
+![ChatGPT Image 2026年9月9日 02_10_20](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/ChatGPT Image 2026年9月9日 02_10_20.png)
 
 ### 一、A2A 的核心概念
 
@@ -587,49 +397,6 @@ Remote Agent 独立推理并执行
 调用方 Agent 继续完成用户目标
 ```
 
-### 三、A2A 如何通信？
-
-A2A 复用成熟的 Web 技术。当前 1.0 规范定义了统一的数据模型和操作，并支持 JSON-RPC、gRPC、HTTP + JSON/REST 等协议绑定。常见实现使用 HTTP(S) 和 JSON-RPC；需要实时返回进度时，可以使用流式响应。
-
-A2A 原生考虑了三类交互：
-
-- **同步请求—响应**：适合能够快速完成的任务；
-- **流式交互**：持续返回生成内容和任务状态；
-- **异步长任务**：任务在请求结束后继续执行，Client 后续查询或接收通知。
-
-消息内容不局限于自然语言，还可以携带文件引用和结构化 JSON，因此两个 Agent 可以交换对程序友好的数据，而不是只能互相“聊天”。
-
-### 四、A2A 与 MCP 有什么区别？
-
-| 对比项 | MCP | A2A |
-| --- | --- | --- |
-| **连接对象** | Agent 与工具、数据源 | 独立 Agent 与独立 Agent |
-| **能力暴露** | Tools、Resources、Prompts | Agent Card 中的能力和交互方式 |
-| **调用粒度** | 通常调用一个明确的工具操作 | 委派一个可能需要自主规划的任务 |
-| **内部实现** | Tool 通常是确定性函数或 API | Remote Agent 可以拥有自己的模型、记忆和工具 |
-| **长任务协作** | 可以扩展支持，但不是最初的核心定位 | Task、状态、流式和异步协作是核心能力 |
-
-二者可以配合使用：一个主 Agent 通过 A2A 将“分析客户流失原因”委派给数据分析 Agent；数据分析 Agent 内部再通过 MCP 查询数据库、读取文档和执行代码。
-
-可以简单理解为：
-
-```text
-MCP：Agent 如何使用工具
-A2A：Agent 如何与另一个 Agent 合作
-```
-
-### 五、什么时候适合使用 A2A？
-
-A2A 适合跨团队、跨服务、跨框架或跨厂商的独立 Agent 协作，特别是需要能力发现、任务委派、长任务状态和结果交付的场景。
-
-如果只是单 Agent 调用一个确定性 API，使用 REST、Function Calling 或 MCP 通常更简单；如果多个子 Agent 都运行在同一个应用和同一个编排器中，直接使用框架内部接口也可能比引入 A2A 更合适。
-
-A2A 统一了通信方式，但不会自动解决 Agent 是否可信、授权范围、任务结果是否正确以及费用由谁承担等问题。生产环境仍需要身份认证、细粒度授权、输入与文件校验、超时和配额、审计追踪，以及高风险操作确认。
-
-简单来说：**A2A 是独立 Agent 之间的标准协作协议。调用方通过 Agent Card 发现对方能力，通过 Message 和 Task 委派工作，并接收状态与 Artifact；双方可以保持内部模型、记忆和工具实现不透明。**
-
-参考：[A2A 官方项目](https://github.com/a2aproject/A2A)、[A2A 1.0 协议规范](https://a2a-protocol.org/latest/specification/)、[A2A 与 MCP 的关系](https://github.com/a2aproject/A2A/blob/main/docs/specification.md#appendix-b-relationship-to-mcp-model-context-protocol)
-
 ## 6. MCP 的消息格式是什么？
 
 MCP 的数据层基于 **JSON-RPC 2.0**。每条消息可以分成两部分：外层是 JSON-RPC 通用信封，负责标识请求、响应和通知；内层的 `method`、`params`、`result` 则由 MCP 定义具体语义。
@@ -650,7 +417,7 @@ MCP 的数据层基于 **JSON-RPC 2.0**。每条消息可以分成两部分：�
 | 字段 | 含义 |
 | --- | --- |
 | `jsonrpc` | 固定为 `"2.0"`，表示使用 JSON-RPC 2.0 |
-| `id` | 请求标识，用于将响应与请求对应；可以是字符串或整数，不能为 `null` |
+| `id` | 请求标识，用于**将响应与请求对应**；可以是字符串或整数，不能为 `null` |
 | `method` | 要执行的 MCP 方法，例如 `tools/list`、`tools/call` |
 | `params` | 方法参数，可选，通常是一个 JSON Object |
 | `result` | 请求成功时的返回数据 |
@@ -873,16 +640,9 @@ Client 随后发送不带 `id` 的 `notifications/initialized`，双方才进入
 
 ### 六、消息格式与传输方式的关系
 
-JSON-RPC 定义的是消息内容，`stdio` 和 Streamable HTTP 决定消息如何传输：
+JSON-RPC 定义的是消息内容
 
-- **stdio**：每条 JSON-RPC 消息占一行，通过进程标准输入和标准输出传输。Server 的普通日志必须写入 `stderr`，否则会破坏 MCP 消息流。
-- **Streamable HTTP**：Client 通常使用 HTTP POST 发送一条 JSON-RPC 消息，Server 可以返回一个 `application/json` 响应，也可以通过 SSE 流返回消息和最终响应。
-
-因此，同一个 `tools/call` JSON-RPC 对象既可以通过本地 `stdio` 传输，也可以通过远程 HTTP 传输；改变传输方式通常不需要改变 MCP 方法本身。
-
-简单来说：**MCP 消息是在 JSON-RPC 2.0 信封中放入 MCP 方法和数据。带 `id` 的 Request 必须收到相同 `id` 的 Result 或 Error；不带 `id` 的 Notification 不需要响应。工具业务失败通常通过 `result.isError` 返回，而协议和消息格式错误通过 JSON-RPC `error` 返回。**
-
-参考：[MCP 基础消息格式](https://modelcontextprotocol.io/specification/2025-11-25/basic)、[MCP Tools 消息](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)、[MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[MCP Schema Reference](https://modelcontextprotocol.io/specification/2025-11-25/schema)
+stdio 和 Streamable HTTP 决定消息如何传输
 
 ## 7. MCP 采用哪些通信方式？
 
@@ -890,8 +650,6 @@ JSON-RPC 定义的是消息内容，`stdio` 和 Streamable HTTP 决定消息如�
 
 1. **stdio**：通过标准输入和标准输出在本地进程之间传输消息；
 2. **Streamable HTTP**：通过 HTTP 在远程 Client 和 Server 之间传输消息，并可以按需使用 SSE 实现流式通信。
-
-需要区分：JSON-RPC 2.0 规定“消息长什么样”，stdio 和 Streamable HTTP 规定“消息通过什么通道传输”。同一个 `tools/call` JSON-RPC 对象既可以通过 stdio 发送，也可以通过 HTTP 发送。
 
 ### 一、stdio
 
@@ -911,17 +669,6 @@ JSON-RPC 消息
 2. Client 将 JSON-RPC 消息写入 Server 的标准输入 `stdin`；
 3. Server 从 `stdin` 读取请求，处理后将 JSON-RPC 响应写入 `stdout`；
 4. Client 从 `stdout` 读取响应，并交给 Host 继续处理。
-
-stdio 传输的主要特点包括：
-
-- 每条消息是独立的 JSON-RPC Request、Response 或 Notification；
-- 消息以换行符分隔，一条消息不能包含未转义的换行；
-- `stdout` 只能输出合法的 MCP 消息；
-- 普通日志必须写入 `stderr`，否则会污染协议消息流；
-- 不需要开放网络端口，适合访问本地文件、Git、数据库客户端和命令行工具；
-- Server 生命周期通常由 Host 管理，Host 退出时会关闭输入流并终止子进程。
-
-例如，在本地 IDE 中接入文件系统 MCP Server 时，IDE 可以直接启动 Server 进程，通过 stdio 发送 `resources/read` 或 `tools/call`，不需要部署 HTTP 服务。
 
 ### 二、Streamable HTTP
 
@@ -994,93 +741,7 @@ Content-Type: application/json
 
 远程 MCP Server 还应使用 TLS、认证和授权，校验 `Origin` Header，并设置超时、速率限制和消息大小限制；本地 HTTP Server 应尽量只监听 `127.0.0.1`，防止 DNS Rebinding 和未授权访问。
 
-### 三、SSE 是第三种标准传输吗？
-
-不是。**SSE 是 Streamable HTTP 内部可选的流式消息机制，不是当前独立的第三种 MCP 标准传输。**
-
-早期 `2024-11-05` 规范使用过单独的 `HTTP + SSE` 传输方式，当前已经由 Streamable HTTP 替代。Client 和 Server 可以为了兼容旧实现继续支持旧版 HTTP + SSE，但新项目通常应优先使用 Streamable HTTP。
-
-### 四、MCP 支持 WebSocket 吗？
-
-WebSocket 当前不是 MCP 正式定义的标准传输。MCP 允许 Client 和 Server 实现自定义 Transport，只要保持 JSON-RPC 消息格式和对应版本要求，但自定义 Transport 需要双方分别适配，跨产品互操作性通常不如 stdio 和 Streamable HTTP。
-
-### 五、应该如何选择？
-
-| 场景 | 推荐传输方式 |
-| --- | --- |
-| 本地 IDE、桌面助手调用本地工具 | stdio |
-| 访问本地文件、Git 或命令行程序 | stdio |
-| 跨机器或跨网络调用 | Streamable HTTP |
-| 云端、企业服务和多租户系统 | Streamable HTTP |
-| 需要流式进度和 Server 消息 | Streamable HTTP + SSE |
-| 必须兼容早期 MCP Server | 根据版本回退到旧 HTTP + SSE |
-
-### 六、为什么 MCP 不把 WebSocket 作为标准传输？
-
-WebSocket 可以在一个长连接上进行全双工通信，从技术上完全能够承载 MCP 的 JSON-RPC 消息。MCP 也允许双方实现自定义 WebSocket Transport。它没有被选为标准传输，主要不是因为能力不足，而是 MCP 的典型调用模式和工程目标更适合 stdio 与 Streamable HTTP。
-
-#### 1. 大部分 MCP 调用不需要持续全双工连接
-
-MCP 最常见的流程是 Client 发起 `tools/call`、`resources/read` 等请求，Server 返回结果，本质上仍然以请求—响应为主。只有进度通知、流式结果和 Server-to-Client 请求等少数场景需要反向通信。
-
-Streamable HTTP 已经可以使用：
-
-- HTTP POST 完成 Client → Server 消息；
-- HTTP Response 或 SSE 完成 Server → Client 消息；
-- GET + SSE 在需要时建立 Server → Client 的消息通道。
-
-因此，它已经能够满足 MCP 所需的双向消息交换，不一定要为每个连接长期维护一个全双工 WebSocket。
-
-#### 2. HTTP 更容易复用现有基础设施
-
-Streamable HTTP 可以直接使用成熟的：
-
-- API Gateway、反向代理和普通负载均衡器；
-- OAuth、Bearer Token、企业身份系统和标准 HTTP 状态码；
-- WAF、限流、访问日志、Tracing 和审计系统；
-- Serverless、容器平台、CDN 与多级网络代理；
-- 按 URL、Header 和 Method 进行路由及策略控制。
-
-WebSocket 虽然也能接入这些系统，但通常需要额外配置 Upgrade、连接保持、心跳、空闲超时和连接级限流。一些企业代理和 Serverless 环境对长连接的支持也比普通 HTTP 请求更复杂。
-
-#### 3. WebSocket 会增加有状态连接的运维成本
-
-长连接通常与某个 Server 实例绑定。进行水平扩容时，系统可能需要 Sticky Session、共享 Session 状态或专门的连接网关。Server 滚动发布、实例故障和网络切换时，还要处理断线重连、消息重放、重复消息与顺序恢复。
-
-普通 HTTP 请求可以由任意实例处理，更适合无状态服务和弹性扩缩容。这也是 `2026-07-28` 候选规范计划移除协议级 Session、强化无状态 HTTP 调用的重要原因。
-
-#### 4. HTTP 的权限和可观测边界更自然
-
-每个 HTTP 请求都可以独立携带身份、协议版本、方法信息和 Trace Context，网关能够按具体请求进行鉴权、限流、路由和审计。
-
-WebSocket 通常在连接建立时完成一次认证，后续多条逻辑消息共享同一连接。系统仍然可以对每条消息授权，但需要在应用层额外实现 Token 更新、细粒度权限检查、流量统计和审计关联。使用 WebSocket 也不会自动解决 JSON-RPC 的请求关联、超时、取消、重试和幂等性问题。
-
-#### 5. 本地场景使用 stdio 更简单
-
-本地 MCP Server 通常由 Host 直接启动，不需要开放端口、处理网络认证或维护 Socket。stdio 已经提供双向字节流，部署成本和攻击面都更小，因此没有必要再使用 WebSocket。
-
-#### WebSocket 什么时候仍然适合？
-
-如果系统需要高频、低延迟、长时间持续的双向事件，例如实时协作、远程设备控制或大量交互式流数据，并且 Client 与 Server 都由同一团队控制，可以实现 WebSocket 自定义 Transport。
-
-代价是双方必须约定连接、认证、重连、心跳和消息恢复机制，而且其他只支持标准 stdio 或 Streamable HTTP 的 MCP Client 无法直接连接，通用互操作性会下降。
-
-简单来说：**WebSocket 能承载 MCP，但 MCP 的多数操作是 Client 主动的请求—响应，Streamable HTTP 加可选 SSE 已经能够满足双向和流式需求，同时更容易复用 HTTP 的鉴权、网关、负载均衡和无状态扩缩容能力。因此 WebSocket 被保留为可选的自定义 Transport，而不是标准默认方案。**
-
-### 七、候选新规范的变化
-
-官方已经发布 `2026-07-28` 候选规范，但截至 2026 年 7 月 19 日尚未正式发布。候选规范计划将远程 MCP 改成无状态模式：
-
-- 删除 `initialize` / `initialized` 握手；
-- 删除协议层的 `MCP-Session-Id`；
-- 将协议版本、Client 信息和必要能力放在每次请求中；
-- Server-to-Client 交互改为可以重新提交的多轮 HTTP 请求，减少对长连接和粘性 Session 的依赖。
-
-这并不意味着 HTTP 被替换，而是 Streamable HTTP 的交互方式从协议层有状态转向无状态。正式发布和 SDK 完成适配前，生产实现仍应以双方实际支持的协议版本为准。
-
-简单来说：**本地 MCP Server 通常使用 stdio，远程 MCP Server 通常使用 Streamable HTTP；JSON-RPC 2.0 是两者共同承载的消息格式，SSE 只是 Streamable HTTP 中可选的流式机制。**
-
-参考：[MCP 2025-11-25 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[MCP 2026-07-28 候选规范](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/)
+## websocket
 
 ## 8. 实时语音对话采用什么传输协议？为什么？
 
@@ -1369,30 +1030,6 @@ LLM Gateway 可以集中实施：
 
 语义缓存不能只比较问题相似度，还必须考虑用户身份、权限、System Prompt、模型版本、工具定义、知识库版本和时效性，否则可能返回错误或越权答案。
 
-### 十、LLM Gateway 与普通 API Gateway 有什么区别？
+## 10. 为什么推理模型不支持MCP协议？
 
-| 普通 API Gateway | LLM Gateway |
-| --- | --- |
-| 主要按请求数限流 | 还按 Token、费用和生成并发限流 |
-| 观察响应时间和状态码 | 还观察 TTFT、TPOT、TPS 和 Token |
-| 普通 JSON Response | 需要正确代理 SSE 和实时流 |
-| 主要根据 URL 路由 | 还根据模型能力、成本和任务路由 |
-| 普通响应缓存 | 需要处理 Prompt Cache 和语义缓存 |
-| 统计请求次数和流量 | 统计模型、Token、租户和任务成本 |
-| 普通请求重试 | 流式输出开始后的重试需要特别谨慎 |
-| 不理解 Prompt 和模型 | 需要理解模型参数、Context Length 和供应商差异 |
-
-LLM Gateway 通常是在传统 API Gateway 或反向代理能力之上，增加模型语义、供应商适配和 Token 成本治理，而不是完全替代普通网关。
-
-### 十一、所有项目都需要大模型网关吗？
-
-- **单模型、低流量 Demo**：可以直接调用模型 API，不必过早引入网关。
-- **多业务、多模型或多租户系统**：适合使用统一网关。
-- **有预算、安全、审计和高可用要求的企业**：通常需要网关。
-- **自建大规模推理集群**：需要网关完成路由、负载均衡和容量保护。
-
-网关自身处于所有模型请求的关键路径，也可能成为性能瓶颈和单点故障。因此应尽量无状态部署、运行多个副本，配置超时、熔断和降级，并保证在网关异常时有明确的故障处理策略。
-
-简单来说：**当前 LLM Gateway 对外通常提供 HTTPS + JSON 或 OpenAI-compatible API，流式文本使用 SSE，实时语音使用 WebRTC 或 WebSocket。它位于业务和模型服务之间，统一处理接口适配、模型路由、Token 限流、成本、可观测性、安全和故障降级，是大模型从 Demo 进入多模型、多租户生产环境后的重要基础设施。**
-
-参考：[LiteLLM Gateway](https://docs.litellm.ai/)、[Kong AI Gateway](https://docs.konghq.com/gateway/latest/ai-gateway/)、[Cloudflare AI Gateway](https://www.cloudflare.com/developer-platform/products/ai-gateway/)
+CoT生成的中间结果是保存在模型内部的，不能进行中断，也就不能调用MCP

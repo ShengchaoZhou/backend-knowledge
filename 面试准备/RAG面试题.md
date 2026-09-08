@@ -23,12 +23,6 @@ RAG 系统通常分为两个阶段：
 5. **生成答案**：LLM 根据检索结果生成回答，而不是只依赖模型内部知识。
 6. **后处理**：进行引用标注、格式整理、安全检查，并记录反馈用于后续优化。
 
-完整流程可以概括为：
-
-**文档采集 → 清洗切分 → Embedding → 建立索引 → 用户提问 → 检索召回 → Rerank → 构造 Prompt → LLM 生成答案。**
-
-需要注意，RAG 可以降低幻觉，但不能完全消除幻觉；最终效果同时取决于知识库质量、切分方式、召回率、重排效果和模型生成能力。
-
 ## 2. 为什么需要对文档进行 Chunk 切分？
 
 Chunking 是将长文档拆成多个较小的文本块。RAG 需要进行 Chunk 切分，主要有以下原因：
@@ -38,8 +32,6 @@ Chunking 是将长文档拆成多个较小的文本块。RAG 需要进行 Chunk 
 3. **整篇文档的语义容易被稀释**：一篇文档可能包含多个主题，使用一个向量表示整篇文档，很难准确表达其中每个局部主题。
 4. **提高检索精度**：按 Chunk 检索可以直接召回与问题最相关的段落，减少无关内容对 LLM 的干扰。
 5. **降低上下文成本**：只将命中的少量 Chunk 放入 Prompt，可以减少 Token 消耗。
-
-简单来说：**Chunk 切分是为了把长文档变成更小、更聚焦的检索单元，让 RAG 找得更准，并减少传给 LLM 的无关内容。**
 
 ## 3. 一个 Chunk 的结构通常是什么样的？
 
@@ -72,8 +64,6 @@ Chunking 是将长文档拆成多个较小的文本块。RAG 需要进行 Chunk 
 
 实际存储时，正文、元数据和 Embedding 可能位于不同的存储系统中，但逻辑上共同组成一个可检索的 Chunk。
 
-简单来说：**Chunk = 唯一标识 + 正文内容 + 元数据 + Embedding + 可选的上下文关系。**
-
 ## 4. 常见的 Chunking 策略有哪些？
 
 常见的文档切分策略包括：
@@ -89,7 +79,7 @@ Chunking 是将长文档拆成多个较小的文本块。RAG 需要进行 Chunk 
 
 ### Contextual Retrieval（上下文化检索）
 
-Anthropic 提出的 Contextual Retrieval 严格来说不是一种新的 Chunk 边界切分方法，而是对切分后的 Chunk 进行上下文化增强：先根据完整文档为每个 Chunk 生成一段简短的背景说明，再将背景说明放在原始 Chunk 前面，然后建立向量索引和 BM25 索引。
+Anthropic 提出的 Contextual Retrieval 严格来说不是一种新的 Chunk 边界切分方法，而是对切分后的 Chunk 进行上下文化增强：**先根据完整文档为每个 Chunk 生成一段简短的背景说明，再将背景说明放在原始 Chunk 前面，然后建立向量索引和 BM25 索引。**
 
 例如，原始 Chunk 是：
 
@@ -124,127 +114,75 @@ Embedding（向量表示）是将文本、图片等非结构化数据转换成�
 7. **成本和性能**：综合比较模型调用价格、推理延迟、吞吐量、并发能力和批量处理能力。
 8. **部署与合规**：根据数据隐私、网络环境、许可证和运维能力，选择云端 API 或本地开源模型。
 
-实际选型流程通常是：
+## 6. Embedding 算法演进
 
-**明确任务、语言和领域 → 根据公开榜单筛选候选模型 → 使用真实业务数据做离线检索评测 → 进行端到端 RAG 测试 → 综合效果、延迟和成本确定模型。**
+### 第一阶段：从词面表示到静态词向量
 
-需要注意：
+早期的 One-hot、TF-IDF 主要表示词的身份和出现情况；后来以 **Word2Vec** 为代表的方法，通过大量语料学习稠密词向量，使向量能够体现词之间的语义关系。但它的局限是**一个词通常只有一个固定向量，无法根据当前上下文区分不同含义**。([斯坦福自然语言处理小组](https://nlp.stanford.edu/IR-book/html/htmledition/dot-products-1.html))
 
-- 建库和查询时必须使用兼容的 Embedding 模型及相同的向量处理方式。
-- 更换不兼容的模型后，通常需要重新计算全部文档向量并重建索引。
-- 不要只选择排行榜总分最高的模型，应重点查看与自己的任务、语言和领域对应的成绩。
+### 第二阶段：从静态词向量到上下文表示
 
-简单来说：**Embedding 将语义转换成可以计算距离的向量；模型选型不能只看排行榜，而要在真实业务数据上比较检索效果、速度、成本和部署条件。**
+以 **2018 年的 BERT** 为代表，模型会结合上下文生成 token 的表示。例如，“吃苹果”和“苹果手机”中的“苹果”，能够得到不同的上下文表示。这一阶段解决了**同一个词在不同语境下如何表达**的问题，但模型具备语言理解能力，并不意味着直接取出的句子向量就适合做相似度检索。([arXiv](https://arxiv.org/abs/1810.04805))
 
-参考：[MTEB 论文](https://arxiv.org/abs/2210.07316)、[MTEB Leaderboard](https://huggingface.co/spaces/mteb/leaderboard)
+### 第三阶段：专门为相似度和检索训练文本向量
 
-## 6. Embedding 算法是如何演进的？有哪些著名算法？
+**SBERT、SimCSE** 等工作进一步优化句子表示：SBERT 让句子能够独立编码，并通过余弦相似度比较；SimCSE 利用对比学习，让正样本对更接近、负样本更容易区分。随后，**E5 等模型**通过大规模文本对训练，将能力扩展到检索、聚类、分类等任务。([arXiv](https://arxiv.org/abs/1908.10084))
 
-文本 Embedding 的演进大致经历了：**稀疏表示 → 静态词向量 → 上下文词向量 → 句子和段落向量 → 面向检索的通用 Embedding。**
+这里最关键的转变是：**不仅要生成向量，还要让向量之间的距离符合任务需求。** 配合 Bi-Encoder 架构，文档向量可以提前计算，查询时只需要编码问题并进行向量检索，从而兼顾语义匹配和检索效率。([Sbert](https://sbert.net/examples/cross_encoder/applications/README.html))
 
-需要注意，TF-IDF 和 BM25 严格来说属于稀疏检索表示，不是现代意义上的 Dense Embedding，但它们是向量检索技术的重要起点。
+### 第四阶段：向通用化、多模态和高效率发展
 
-| 时间 | 代表算法 | 核心思想 | 主要局限 |
-| --- | --- | --- | --- |
-| 20 世纪 70～90 年代 | **TF-IDF、BM25** | 将文本表示成词项权重组成的高维稀疏向量，擅长关键词和精确匹配 | 难以理解同义词、上下文和深层语义 |
-| 1990 | **LSA / LSI** | 对词—文档矩阵进行 SVD 降维，在低维空间中发现潜在语义 | 线性表达能力有限，计算和增量更新成本较高 |
-| 2013 | **Word2Vec** | 使用 CBOW 或 Skip-gram，根据局部上下文学习稠密词向量 | 每个词只有一个固定向量，无法处理一词多义，也不能直接表示完整句子 |
-| 2014 | **GloVe** | 结合全局词共现统计与矩阵分解思想学习词向量 | 仍属于静态词向量，不随上下文变化 |
-| 2018 | **ELMo** | 使用双向语言模型，根据整句话为同一个词生成不同的上下文向量 | 基于 LSTM，训练和推理效率有限，主要输出 Token 级表示 |
-| 2018 | **BERT** | 使用 Transformer 双向编码上下文，产生更强的上下文 Token 表示 | 原始 BERT 并不是专门为向量检索训练的，直接使用 CLS 或平均池化效果不一定理想 |
-| 2019 | **Sentence-BERT（SBERT）** | 使用孪生网络和对比式训练，将句子编码成可直接计算余弦相似度的固定向量 | 效果依赖训练数据和负样本，跨领域时可能下降 |
-| 2020 | **DPR（Dense Passage Retrieval）** | 使用 Query Encoder 和 Passage Encoder 分别编码问题与文档，并通过对比学习训练相关文档靠近问题 | 通常需要高质量问答对和负样本，对领域迁移较敏感 |
-| 2022～2023 | **E5、INSTRUCTOR** | 使用大规模文本对进行对比学习，并通过 Query/Passage 前缀或任务指令生成通用 Embedding | 必须遵循模型规定的输入格式；模型越大，推理成本通常越高 |
-| 2022 至今 | **Matryoshka Embedding 等高效表示** | 在一个向量中按维度嵌套不同粒度的信息，使同一模型可以使用不同向量维度平衡效果、存储和速度 | 截断到较低维度可能损失效果，需要模型本身支持这种训练方式 |
+近年值得关注的方向，我会重点讲四个：
 
-对于现代 RAG，真正关键的转折是：
+**一是大模型化和指令化。** 使用大语言模型作为基础，再经过专门训练得到 Embedding，例如 **2025 年的 Qwen3 Embedding**；同时引入任务指令，让模型知道当前表示是用于检索、分类还是其他任务，而不是所有用途都采用相同的表示方式。([arXiv](https://arxiv.org/abs/2506.05176?utm_source=chatgpt.com))
 
-1. **Word2Vec / GloVe**：从关键词统计发展到稠密语义向量。
-2. **ELMo / BERT**：从静态词义发展到上下文相关表示。
-3. **SBERT**：让句子和段落可以提前编码并高效比较，适合语义搜索。
-4. **DPR**：将 Embedding 专门用于 Query—Passage 检索，形成现代 Dense Retrieval 的典型双塔结构。
-5. **E5 / INSTRUCTOR 等模型**：通过大规模对比学习和指令化训练，提高跨任务、跨语言和跨领域的通用能力。
+**二是更细粒度、更多功能的检索表示。** 例如 ColBERT 的多向量、晚交互路线，保留 token 级信息进行细粒度匹配；**BGE-M3** 则进一步把稠密、稀疏和多向量检索整合到同一模型，同时支持多语言和长文本。([arXiv](https://arxiv.org/abs/2004.12832))
 
-简单来说：**Embedding 从“统计词是否出现”，发展到“学习词的语义”，再发展到“结合上下文表示完整句子和文档”，最后演进为专门面向检索、支持指令和多语言的通用向量模型。**
+**三是多模态统一表示。** 不再只编码文字，而是将文本、图像、文档截图、视频映射到可比较的表示空间。例如 **2026 年的 Qwen3-VL-Embedding**，就支持这些模态之间的检索。([arXiv](https://arxiv.org/abs/2601.04720?utm_source=chatgpt.com))
 
-参考：[Word2Vec](https://arxiv.org/abs/1301.3781)、[GloVe](https://aclanthology.org/D14-1162/)、[ELMo](https://aclanthology.org/N18-1202/)、[BERT](https://arxiv.org/abs/1810.04805)、[SBERT](https://aclanthology.org/D19-1410/)、[DPR](https://aclanthology.org/2020.emnlp-main.550/)、[E5](https://arxiv.org/abs/2212.03533)、[INSTRUCTOR](https://arxiv.org/abs/2212.09741)、[Matryoshka Representation Learning](https://arxiv.org/abs/2205.13147)
+**四是降低部署和检索成本。** 例如 Matryoshka，也就是“套娃”表示学习，让经过专门训练的向量可以截取前面较少的维度使用，在检索效果、存储空间和计算成本之间进行权衡。([arXiv](https://arxiv.org/abs/2205.13147))
+
+因此，我理解这条发展主线是：**从“表示词的语义”，到“结合上下文理解文本”，再到“让向量适合具体任务”，最后扩展到更通用、更多模态和更高效的表示。**
+
+另外，**Cross-Encoder 不应当被当作 Embedding 的下一代**。它是将查询和文档联合编码、直接评分的架构，通常与 Embedding 配合，形成“向量召回＋精细重排”的检索流程。([Sbert](https://sbert.net/examples/cross_encoder/applications/README.html))
 
 ## 7. 常见的向量数据库有哪些？应该如何选型？
 
-常见方案可以分为独立向量数据库、传统数据库扩展、搜索引擎和本地向量检索工具。
+需要区分两类：**专门为向量检索设计的数据库**，以及**增加了向量检索能力的现有数据库或搜索引擎**。下面按类型介绍，不是市场份额排名。
 
-| 方案 | 类型与特点 | 典型适用场景 | 需要考虑的问题 |
-| --- | --- | --- | --- |
-| **Pinecone** | 全托管向量数据库，提供向量、稀疏向量、Metadata 过滤和混合检索能力 | 希望快速上线、不想维护基础设施的团队 | 云服务成本、数据合规和厂商绑定 |
-| **Milvus / Zilliz Cloud** | Milvus 是开源、面向大规模数据的分布式向量数据库，支持多种索引和存算分离；Zilliz Cloud 是其托管服务 | 向量规模大、吞吐量高、需要水平扩展的系统 | 分布式部署和运维复杂度较高 |
-| **Qdrant** | 开源向量数据库，支持 Dense、Sparse、Named Vector 和 Payload 过滤，既可自建也有托管服务 | 重视 Metadata 过滤、部署灵活性和开发体验的 RAG 系统 | 自建集群仍需处理扩容、备份和监控 |
-| **Weaviate** | 开源向量数据库，内置向量搜索、BM25、混合搜索、过滤和多向量能力 | 希望在一个系统中完成语义、关键词和混合检索 | 功能和抽象较多，需要理解其 Schema、索引和资源配置 |
-| **pgvector** | PostgreSQL 扩展，在原有表中保存向量，支持精确检索、HNSW 和 IVFFlat | 已使用 PostgreSQL，数据规模和 QPS 中等，并且需要事务、JOIN 和复杂 SQL 过滤 | 大规模独立向量检索时，需要额外规划分片、扩容和索引调优 |
-| **Elasticsearch / OpenSearch** | 搜索引擎增加向量检索能力，擅长 BM25、向量、过滤、聚合和混合搜索 | 已有搜索引擎技术栈，或业务强依赖关键词、过滤和聚合 | 集群资源消耗较大，向量索引和混合排序需要持续调优 |
-| **Chroma** | 面向 AI 应用的开源数据基础设施，支持本地、自建和云端模式，API 简单 | 原型验证、本地开发和快速构建中小型 RAG | 需要根据目标部署模式验证功能、性能和运维能力 |
+1. 专用向量数据库
 
-另外，**FAISS、HNSWlib** 等主要是向量检索库，不是完整数据库。它们适合本地检索或高度定制的系统，但持久化、Metadata 过滤、分布式扩展、备份和权限通常需要自行实现。
+| 名称         | 主要特点                                                     | 可以重点考虑的场景                                           |
+| ------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **Milvus**   | 开源，支持多种向量索引，支持从本地到大规模分布式的部署方式。 | 向量数据量较大，需要分布式扩展的检索系统。([Milvus](https://milvus.io/docs/overview.md?utm_source=chatgpt.com)) |
+| **Qdrant**   | 开源，使用 Rust 开发，注重向量检索与**元数据过滤**的结合。   | 检索时需要同时限定用户、文档类型、业务分类等条件。([GitHub](https://github.com/qdrant/qdrant?utm_source=chatgpt.com)) |
+| **Pinecone** | **全托管云服务**，无需自行管理底层数据库基础设施。           | 希望通过 API 使用向量数据库，减少部署和运维工作。([Pinecone](https://www.pinecone.io/how-pinecone-works/?utm_source=chatgpt.com)) |
+| **Weaviate** | 开源，支持向量检索、关键词检索及两者结合的**混合检索**，提供模型接入能力。 | 需要整合语义检索、关键词匹配的知识库或 RAG 应用。([Weaviate](https://weaviate.io/platform?utm_source=chatgpt.com)) |
+| **Chroma**   | 开源，本地使用方便，也提供云服务。                           | 学习实验、本地知识库、快速搭建 RAG 原型；并不局限于原型用途。([Chroma Docs](https://docs.trychroma.com/docs/overview/getting-started?utm_source=chatgpt.com)) |
 
-选型时主要考虑以下因素：
+2. 支持向量检索的数据库或搜索引擎
 
-1. **数据规模和增长速度**：评估当前及未来的向量数量、向量维度和索引大小。
-2. **性能目标**：测试写入吞吐量、查询 QPS、P95/P99 延迟，以及 ANN 检索的 Recall。
-3. **检索能力**：确认是否支持所需的距离度量、HNSW/IVF 等索引、Dense + Sparse 混合检索、多向量和 Rerank。
-4. **过滤与权限**：RAG 经常需要按照用户、租户、部门、时间和文档权限过滤，因此 Metadata 过滤性能非常重要。
-5. **数据更新能力**：考虑实时写入、更新、删除、索引构建时间、数据可见性和一致性要求。
-6. **部署方式**：根据团队运维能力、数据隐私和合规要求，选择全托管、自建单机或分布式集群。
-7. **现有技术栈**：已经使用 PostgreSQL 或 Elasticsearch 时，可以优先评估 pgvector 或 Elasticsearch，减少引入新系统的成本。
-8. **可靠性和运维**：检查高可用、备份恢复、监控、扩缩容、多租户和故障处理能力。
-9. **总体成本**：综合计算存储、内存、计算、网络、托管费用和人力运维成本。
+| 名称                      | 与向量数据库的关系                                           | 可以重点考虑的场景                                           |
+| ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **PostgreSQL + pgvector** | pgvector 是 PostgreSQL 的扩展，支持 **HNSW、IVFFlat**；可以将向量与业务数据放在一起，使用 SQL、事务和 JOIN。 | 已经使用 PostgreSQL，不希望再引入一套独立数据库。([GitHub](https://github.com/pgvector/pgvector)) |
+| **Elasticsearch**         | 本身是搜索引擎，能够将向量检索与全文检索、结构化过滤、聚合结合。 | 已有 Elasticsearch，或者需要“关键词 + 语义”的混合检索。([Elastic](https://www.elastic.co/docs/solutions/search/vector?utm_source=chatgpt.com)) |
+| **Redis**                 | 通过 Redis Search 等搜索能力提供向量检索，并支持文本、数值、标签等过滤条件。 | 希望在 Redis 技术栈中实现带业务条件的向量检索。([Redis](https://redis.io/docs/latest/develop/ai/search-and-query/query/vector-search/?utm_source=chatgpt.com)) |
 
-一个实用的选型思路是：
+## 8. 向量数据库索引算法
 
-- **快速原型或本地开发**：优先考虑 Chroma、Milvus Lite，或者直接使用 FAISS。
-- **已有 PostgreSQL 且规模可控**：优先评估 pgvector。
-- **关键词和语义混合搜索很重要**：优先评估 Elasticsearch、OpenSearch 或 Weaviate。
-- **需要独立开源向量数据库**：评估 Qdrant、Milvus 或 Weaviate。
-- **规模很大且需要分布式扩展**：重点评估 Milvus 等分布式方案。
-- **希望零运维快速上线**：评估 Pinecone、Zilliz Cloud、Qdrant Cloud、Weaviate Cloud 等托管服务。
+![ChatGPT Image 2026年9月6日 18_31_41](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/ChatGPT Image 2026年9月6日 18_31_41.png)
 
-最终不要只根据功能列表决定。应使用自己的向量、过滤条件和查询流量做小规模压测，比较：**Recall@K、查询延迟、写入速度、过滤效果、资源占用和总体成本。**
+flat：暴力搜索所有向量
 
-简单来说：**小规模优先复用现有数据库，混合搜索优先考虑搜索引擎或内置混合检索的向量数据库，大规模场景选择可水平扩展的专用系统；最终以真实业务压测结果为准。**
+kd-tree：把向量空间提前划分好，查询时剪掉“不可能包含最近邻”的区域。
 
-参考：[Pinecone](https://docs.pinecone.io/guides/search/search-overview)、[Milvus](https://milvus.io/docs/overview.md)、[Qdrant](https://qdrant.tech/documentation/overview/)、[Weaviate](https://docs.weaviate.io/weaviate)、[pgvector](https://github.com/pgvector/pgvector)、[Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/vector-queries.html)、[Chroma](https://docs.trychroma.com/docs/overview/introduction)
+lsh：Locality Sensitive Hashing，局部敏感哈希。相似向量-->较高概率得到相同 Hash-->进入同一个 Bucket
 
-## 8. 向量数据库常见的索引算法有哪些？
+ivf：先粗定位，再局部搜索。首先对所有向量做聚类，例如 K-Means，每个 Cluster 有一个中心，找到最近的几个 Cluster，只搜索这些。
 
-向量检索可以分为**精确最近邻检索（Exact Nearest Neighbor）**和**近似最近邻检索（ANN）**。精确检索保证找到真正的最近邻；ANN 通过牺牲少量 Recall，换取更低的延迟和更高的可扩展性。
+⭐️hnsw：像是高维跳表，节点能否成为高层次节点是随机的。
 
-| 类型 | 代表算法 | 核心思想 | 主要特点 |
-| --- | --- | --- | --- |
-| **暴力检索** | **FLAT / Brute Force** | 将 Query 与全部向量逐一计算距离 | 结果精确、无需训练和建复杂索引；数据量大时速度慢 |
-| **树结构索引** | **KD-Tree、Ball Tree、Annoy** | 递归划分向量空间，查询时跳过不相关区域 | 适合低维或中低维数据；高维空间中容易退化 |
-| **哈希索引** | **LSH（Locality-Sensitive Hashing）** | 使用局部敏感哈希将相近向量映射到相同桶中 | 查询较快、可扩展，但通常需要较多哈希表，Recall 和空间效率需要权衡 |
-| **倒排文件索引** | **IVF_FLAT** | 先使用聚类中心将向量划分到多个桶，查询时只搜索最相关的若干桶 | 内存开销相对可控，适合大规模数据；需要训练聚类中心并调节 `nlist`、`nprobe` |
-| **向量量化** | **SQ、PQ、OPQ、IVF_PQ** | 将浮点向量压缩成低精度或短编码，使用压缩向量近似计算距离 | 显著降低存储和内存，但会损失部分精度；通常与 IVF 或 HNSW 组合使用 |
-| **图索引** | **HNSW、NSG** | 将相似向量连接成图，通过图上的贪心遍历快速接近 Query | 通常具有较好的 Recall—延迟平衡，支持增量插入；但建索引较慢且内存占用较高 |
-| **磁盘型图索引** | **DiskANN / Vamana** | 将主要图索引和向量数据放在 SSD 上，并结合缓存和量化减少内存占用 | 适合数据无法全部放入内存的超大规模场景；依赖 SSD 性能，系统和参数调优更复杂 |
-| **组合型索引** | **ScaNN 等** | 结合空间划分、量化、候选召回和精确重排 | 能在速度、内存和 Recall 之间取得较好平衡，但实现和调参相对复杂 |
-
-需要注意，**PQ、SQ 等首先是向量压缩方法，不一定单独完成搜索**。生产系统经常使用组合索引，例如 IVF_PQ、HNSW_PQ，或者先用 ANN 召回候选，再使用原始向量进行精确 Rerank。
-
-对于 Sparse Vector，通常使用**倒排索引、WAND / Block-Max WAND**等算法；混合检索系统一般同时维护一个稀疏索引和一个 Dense Vector 索引，再融合两路结果。
-
-常见选型建议：
-
-- **数据量较小或必须保证 100% Recall**：使用 FLAT，必要时使用 GPU 加速。
-- **数据能够放入内存，要求低延迟和高 Recall**：优先评估 HNSW。
-- **数据规模较大、内存有限**：评估 IVF_FLAT、IVF_SQ 或 IVF_PQ。
-- **数据远大于内存并使用 SSD**：评估 DiskANN 等磁盘型索引。
-- **向量维度较低**：可以考虑 KD-Tree、Ball Tree；高维语义向量通常更适合 HNSW、IVF 或 DiskANN。
-- **需要大量 Metadata 过滤**：除了索引类型，还要测试过滤前后的候选数量，因为过滤条件会显著影响 ANN 的 Recall 和延迟。
-
-关键参数包括：HNSW 的 `M`、`efConstruction`、`efSearch`，IVF 的 `nlist`、`nprobe`，以及 PQ 的子向量数量和编码位数。这些参数本质上都在**Recall、延迟、建索引时间和内存占用**之间做权衡。
-
-简单来说：**FLAT 最准确，HNSW 适合内存中的高性能检索，IVF 和 PQ 适合大规模及内存受限场景，DiskANN 适合数据无法全部放入内存的场景。最终应使用真实数据测试 Recall@K、P95 延迟、QPS、内存和索引构建时间。**
-
-参考：[HNSW 论文](https://arxiv.org/abs/1603.09320)、[DiskANN 论文](https://proceedings.neurips.cc/paper/2019/hash/09853c7fb1d3f8ee67a61b6bf4a7f8e6-Abstract.html)、[Milvus 索引说明](https://milvus.io/docs/index-explained.md)、[pgvector 索引说明](https://github.com/pgvector/pgvector)
+![ChatGPT Image 2026年9月6日 18_56_37](/Users/bytedance/vscode/backend-knowledge/面试准备/assets/ChatGPT Image 2026年9月6日 18_56_37.png)
 
 ## 9. 向量数据库有哪些常见的性能调优方法？
 
@@ -280,13 +218,7 @@ Embedding（向量表示）是将文本、图片等非结构化数据转换成�
 
 参考：[Milvus 索引选型](https://milvus.io/docs/index-explained.md)、[Qdrant 官方文档](https://qdrant.tech/documentation/overview/)、[pgvector](https://github.com/pgvector/pgvector)、[Pinecone 搜索优化](https://docs.pinecone.io/guides/search/search-overview)
 
-## 10. 大模型使用 RAG 的在线工作流程是什么？Query 一般如何预处理？
-
-RAG 的在线流程不是把用户原始问题直接转换成向量后立即搜索，而是通常先进行 Query 理解和预处理，再执行召回、排序、上下文构造和答案生成。
-
-完整流程可以概括为：
-
-**用户问题 → Query 预处理 → 多路召回 → 结果融合 → 过滤与 Rerank → 上下文构造 → LLM 生成 → 引用与结果校验。**
+## 10. 大模型使用 RAG 的在线工作流程是什么？
 
 ### 一、Query 预处理
 
@@ -304,8 +236,6 @@ RAG 的在线流程不是把用户原始问题直接转换成向量后立即搜�
 10. **HyDE（Hypothetical Document Embeddings）**：让 LLM 先生成一个假设性答案或文档，再对它生成 Embedding 并进行检索。它只用于改善召回，不能把假设内容当成最终事实。
 11. **生成检索表示**：为 Dense Retrieval 生成 Query Embedding，同时为 BM25 等 Sparse Retrieval 保留关键词、实体和精确术语。
 
-并不是每个 Query 都需要执行全部步骤。简单问题可以直接检索；只有模糊、对话式、复杂或多跳问题才需要 LLM 改写、扩展或拆解，否则会增加延迟和 Query Drift 风险。
-
 ### 二、召回与结果融合
 
 1. **多路召回**：并行执行 Dense Vector Search、BM25、知识图谱、SQL 或其他数据源检索。
@@ -320,20 +250,6 @@ RAG 的在线流程不是把用户原始问题直接转换成向量后立即搜�
 3. **Prompt 构造**：将系统指令、原始问题、检索证据和引用信息组合后交给 LLM。
 4. **答案生成**：要求 LLM 基于证据回答，在证据不足时明确说明无法确认。
 5. **后处理与校验**：检查引用、事实一致性、安全性和输出格式，并记录 Query、召回结果及用户反馈用于评测。
-
-例如，在讨论 ACME 公司后，用户问“它去年营收增长多少？”：
-
-- 对话补全：改写为“ACME 公司 2025 年营收同比增长率是多少？”
-- 实体与过滤条件：`company=ACME`、`year=2025`、`document_type=annual_report`
-- Query 扩展：同时搜索“营收增长率”“收入同比增幅”“revenue growth”
-- 混合召回：使用 BM25 找精确年份和财务术语，使用向量检索找语义相关段落
-- Rerank 与生成：选择最相关的财报 Chunk，生成带来源的回答
-
-需要注意：**Query 改写应保留原始 Query，并防止 LLM 擅自增加条件或改变用户意图；权限过滤应在敏感内容进入 LLM 上下文之前完成。**
-
-简单来说：**Query 预处理的目标是把用户的自然语言问题转换成更明确、可独立理解、可路由、可过滤并适合多路检索的查询，然后通过召回、融合、Rerank 和上下文构造，把最可靠的证据交给 LLM。**
-
-参考：[Microsoft Advanced RAG](https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation)、[RAG 信息检索阶段](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-information-retrieval)、[Elastic Hybrid Search 与 RRF](https://www.elastic.co/docs/solutions/search/hybrid-search)
 
 ## 11. RAG 中常见的 Query Rewrite 方式有哪些？
 
@@ -467,34 +383,6 @@ Query2Doc 同样让 LLM 生成与问题相关的伪文档，但常见做法是�
 
 它可以让 Query 更贴近当前语料库的真实词汇；但如果第一次召回结果就是错误的，第二次改写会进一步强化错误方向，因此需要设置相关性阈值或使用 Reranker 过滤。
 
-### 如何选择改写方式？
-
-| Query 特征 | 优先考虑的方式 |
-| --- | --- |
-| 错别字、缩写、日期或单位不统一 | 规则化与标准化 |
-| 依赖聊天历史、包含“它”“这个”等指代 | 对话补全 |
-| 用户说法与文档术语差异较大 | 同义改写、Query Expansion |
-| 问题宽泛或存在多种表达方式 | Multi-Query |
-| 包含多个子问题、比较关系或多跳推理 | Query Decomposition |
-| 需要补充通用原理和背景知识 | Step-back Query |
-| Query 太短、语义召回缺少足够信息 | HyDE、Query2Doc |
-| 包含明确的时间、类型、权限等条件 | 结构化改写 |
-| 用户语言和语料库语言不同 | 跨语言改写 |
-| 首次召回弱，但头部结果仍有一定相关性 | PRF |
-
-工程上通常应遵循以下原则：
-
-1. **保留原始 Query**，与改写 Query 一起检索或用于校验，避免完全依赖 LLM 改写。
-2. **保留用户硬约束**，不得擅自改变实体、时间、否定词、数值和权限范围。
-3. **按需路由**，简单问题不要默认生成大量 Query；复杂问题才使用 Multi-Query、拆解或 HyDE。
-4. **控制数量和成本**，限制改写条数、并发数和二次检索次数。
-5. **使用真实数据评测**，同时观察 Recall@K、Precision、最终答案正确率、延迟、成本和 Query Drift 率。
-6. **记录可观测链路**，保存原始 Query、改写结果、过滤条件、召回文档和最终答案，方便定位改写是否带偏。
-
-简单来说：**对话补全解决“问题不完整”，同义改写和 Expansion 解决“说法不一致”，Multi-Query 解决“单一表达召回不足”，Decomposition 解决“问题太复杂”，Step-back 补充背景，HyDE 和 Query2Doc 补充语义表示，结构化改写负责精确过滤。**
-
-参考：[Rewrite-Retrieve-Read](https://arxiv.org/abs/2305.14283)、[Step-Back Prompting](https://arxiv.org/abs/2310.06117)、[HyDE](https://arxiv.org/abs/2212.10496)、[Query2doc](https://aclanthology.org/2023.emnlp-main.585/)
-
 ## 12. 什么是多路召回？召回结果如何融合？
 
 **多路召回**是指使用多种检索方式并行查找候选文档，利用不同检索方法的互补性提高 Recall。常见的召回路径包括：
@@ -621,14 +509,6 @@ RAG 范式描述的是：**检索、生成以及中间增强模块以什么方�
 6. **安全与权限**：在内容进入 LLM 上下文之前执行文档级或 Chunk 级权限过滤，并防御 Prompt Injection、敏感信息泄露和恶意文档污染。
 7. **版本与回归测试**：修改 Chunking、Embedding、Prompt、模型或索引参数后，使用固定评测集进行回归测试和灰度发布。
 
-一个成熟系统并不是每次都运行最长、最复杂的链路，而是：
-
-> **简单 Query 使用低成本的 Advanced RAG；复杂 Query 才升级为 GraphRAG 或 Agentic RAG；所有链路都受到权限、预算、评测和可观测系统的约束。**
-
-简单来说：**Naive RAG 是固定的“检索一次再生成”，Advanced RAG 是优化后的检索流水线，Modular RAG 是可以动态组合的架构，GraphRAG 和 Agentic RAG 分别增强关系推理与自主检索。现代生产级 RAG 的核心不是堆叠最多技术，而是根据 Query 自适应选择最有效的链路，并通过评测、安全和监控形成闭环。**
-
-参考：[RAG Survey：Naive、Advanced 与 Modular RAG](https://arxiv.org/abs/2312.10997)、[Microsoft Advanced RAG](https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation)、[Microsoft GraphRAG](https://www.microsoft.com/en-us/research/blog/graphrag-new-tool-for-complex-data-discovery-now-on-github/)、[Corrective RAG](https://arxiv.org/abs/2401.15884)、[Self-RAG](https://arxiv.org/abs/2310.11511)、[Agentic RAG Survey](https://arxiv.org/abs/2501.09136)、[AWS 生产级 RAG 组件](https://docs.aws.amazon.com/prescriptive-guidance/latest/retrieval-augmented-generation-options/what-is-rag.html)
-
 ## 14. 什么时候需要使用图数据库增强 RAG？
 
 当问题的答案不仅取决于“哪个 Chunk 与 Query 最相似”，还取决于**实体之间的关系、路径和整体结构**时，可以考虑使用图数据库或 GraphRAG 增强普通 RAG。
@@ -641,7 +521,7 @@ RAG 范式描述的是：**检索、生成以及中间增强模块以什么方�
 
 2. **关系本身就是核心信息**
 
-   例如组织架构、股权关系、供应链、社交网络、设备拓扑、调用链和药物—疾病—基因关系。此类问题不仅需要找到实体，还要知道实体之间是什么关系。
+   例如⭐️⭐️⭐️**组织架构、股权关系、供应链、社交网络、设备拓扑、调用链和药物—疾病—基因关系、代码中函数调用**。此类问题不仅需要找到实体，还要知道实体之间是什么关系。
 
 3. **需要全局总结和主题分析**
 
@@ -663,41 +543,25 @@ RAG 范式描述的是：**检索、生成以及中间增强模块以什么方�
 
    如果企业已经维护商品、用户、权限、组织或设备关系图，那么让 RAG 查询现有图通常比重新把这些关系压缩成文本再做向量检索更合理。
 
-### 不一定需要图数据库的场景
+### 图数据库使用方式
 
-- 主要是 FAQ、制度查询、文档定位和简单事实问答；
-- 答案通常集中在一个或相邻几个 Chunk 中；
-- 数据规模小、实体关系少，或者关系并不是查询重点；
-- 知识更新频繁，但没有可靠的实体和关系抽取能力；
-- 对成本和延迟要求很严格，普通 BM25 + 向量检索 + Rerank 已经达到效果目标。
+### 1. 离线：准备知识图谱
 
-图数据库并不会自动解决 Chunk 质量差、Embedding 不合适或文档解析错误等问题。如果业务查询并不依赖关系，增加图只会带来建图、实体对齐、更新和运维成本。
+将文档分块，提取其中的**实体和关系**，合并重复实体后存入图数据库，并保留与原文片段的关联。同时，可以为文本块建立向量索引，方便后续语义检索。
 
-### 常见的两种增强方式
+例如，从文档中提取出：
 
-1. **使用已有业务图谱**
+> 订单服务 **依赖** 支付服务；支付服务 **依赖** 数据库 A。
 
-   将 Query 解析为实体和关系条件，生成 Cypher、Gremlin 等图查询，取得相关节点、路径和属性，再把结果与文档 Chunk 一起交给 LLM。这种方式的图数据通常质量更高，适合确定性的业务关系查询。
+### 2. 在线：检索并生成答案
 
-2. **从非结构化文档自动构建 GraphRAG**
+**① 找到检索入口。** 用户提问后，通过实体匹配、关键词或向量检索，定位相关的实体或文本块。
 
-   使用 LLM 或信息抽取模型从文档中识别实体和关系，构建图、划分社区并生成摘要。查询时可以执行：
+**② 沿关系扩展检索。** 以这些结果为起点，根据问题沿图中的关系查询，找到相关节点、路径及原文证据，而不只是返回语义相似的文本。
 
-   - **Local Search**：从特定实体出发查找邻居、关系和相关原文；
-   - **Global Search**：检索社区摘要，回答整个语料库的主题和趋势问题；
-   - **混合检索**：将图查询结果与 BM25、向量检索结果融合，再进行 Rerank。
+例如，用户问“数据库 A 故障可能影响哪些服务”，就可以沿**反向依赖关系**，查到支付服务以及间接受影响的订单服务。
 
-### 推荐的判断方式
-
-可以先观察评测集中的问题类型：
-
-- 如果大量问题包含“谁与谁有关”“经过哪些环节”“共同关联”“影响路径”“整体主题”等关系型或全局型问题，图增强可能有明显价值；
-- 如果错误主要来自关键词没命中、Chunk 缺少上下文或排序不准，应先优化 Chunking、混合检索和 Rerank；
-- 最后使用真实问题对比普通 RAG 与 GraphRAG 的答案正确率、完整性、P95 延迟、建图成本和更新成本，再决定是否引入。
-
-简单来说：**查相似内容优先使用向量和关键词检索；查实体之间的关系、跨文档路径、多跳证据或全局主题时，再考虑图数据库。生产系统通常是图检索与向量检索互补，而不是二选一。**
-
-参考：[Microsoft GraphRAG](https://www.microsoft.com/en-us/research/blog/graphrag-new-tool-for-complex-data-discovery-now-on-github/)、[DRIFT Search：结合 GraphRAG 全局与局部检索](https://www.microsoft.com/en-us/research/blog/introducing-drift-search-combining-global-and-local-search-methods-to-improve-quality-and-efficiency/)
+**③ 组织上下文，生成答案。** 将筛选后的关系信息和相关原文整理成文本，连同用户问题一起交给大模型生成回答，**不是把整个图数据库塞给模型**
 
 ## 15. RAG 中的幻觉是怎么产生的？如何解决？
 
@@ -816,26 +680,9 @@ Prompt 中应明确要求：
 - **端到端阶段**：评测完整性、延迟、成本和用户任务成功率；
 - 保存 Query 改写、召回结果、Rerank 分数、Prompt、回答和引用链路，便于判断问题究竟发生在哪一层。
 
-### 一个简单例子
-
-用户问：“2025 年退款政策允许多少天内无理由退款？”
-
-- 系统错误召回了 2023 年的“30 天退款”文档，这是**数据版本或检索幻觉**；
-- 正确文档写的是“未拆封商品 7 天”，模型回答“所有商品均可在 7 天内退款”，这是**丢失适用条件的生成幻觉**；
-- 模型回答正确，但引用了另一篇不相关文档，这是**引用幻觉**；
-- 知识库里没有 2025 年政策，模型仍回答“7 天”，这是**证据不足时的猜测**。
-
-对应的解决方案是：使用 `year=2025` 过滤和版本管理；保留“未拆封商品”所在的完整父 Chunk；要求结论逐条引用；如果没有有效证据则拒绝回答。
-
-简单来说：**RAG 幻觉不只是 LLM 编造，也可能由错误数据、Query Drift、漏召回、错误排序和上下文丢失造成。治理原则是先保证“检索到正确证据”，再保证“答案只使用这些证据”，最后通过引用、验证、拒答和评测形成闭环。**
-
-参考：[Self-RAG](https://arxiv.org/abs/2310.11511)、[Corrective RAG](https://arxiv.org/abs/2401.15884)、[RAG Evaluation Survey](https://arxiv.org/abs/2405.07437)、[Microsoft Advanced RAG](https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation)
-
 ## 16. 有哪些 RAG 效果评估方法？
 
-RAG 是由检索和生成组成的复合系统，因此不能只判断“最终答案看起来是否正确”，而应该分别评估：
-
-**检索效果 → 生成效果 → 端到端效果 → 鲁棒性与安全性 → 延迟和成本。**
+**检索效果（几个指标） → 生成效果（可以用llm评估） → 端到端效果（用户感受） → 鲁棒性与安全性 → 延迟和成本。**
 
 从评估手段上，又可以分为**规则指标、LLM-as-a-Judge、人工评审和在线 A/B 测试**。
 
@@ -972,20 +819,6 @@ RAGAS、ARES 和 RAGChecker 都属于自动化 RAG 评测框架：RAGAS 强调�
 - 每次请求的检索、Rerank 和 Token 成本；
 - 索引构建时间、数据新鲜度和更新延迟；
 - 缓存命中率、降级成功率和系统可用性。
-
-### 推荐的评估流程
-
-1. 建立包含问题、证据、答案和不可回答样本的 Golden Dataset；
-2. 先用 Recall@K、MRR、nDCG 等指标验证检索；
-3. 固定正确上下文，单独评估 Generator 的正确性和忠实度；
-4. 运行端到端评测，并通过消融实验定位模块贡献；
-5. 使用 LLM Judge 扩大覆盖面，并用领域专家样本进行校准；
-6. 将离线表现更好的方案进行灰度和 A/B 测试；
-7. 把线上失败样本回流到评测集，持续进行回归测试。
-
-简单来说：**离线指标用来快速回归，组件评估用来定位问题，LLM Judge 用来扩大开放式评测规模，人工评审负责高质量校准，线上 A/B 验证真实业务价值；同时必须评估检索、生成、安全、延迟和成本，不能只看最终答案分数。**
-
-参考：[RAG Evaluation Survey](https://arxiv.org/abs/2405.07437)、[RAGAS](https://aclanthology.org/2024.eacl-demo.16/)、[ARES](https://aclanthology.org/2024.naacl-long.20/)、[RAGChecker](https://arxiv.org/abs/2408.08067)
 
 ## 17. RAG 的知识库动态更新是怎么设计的？
 
@@ -1127,21 +960,7 @@ RAG 知识库动态更新的核心目标是：**让新增、修改、删除和�
 - 数据源文档数与索引文档数的对账差异；
 - 更新前后的 Recall@K、答案正确率、P95 查询延迟和成本。
 
-### 一个推荐的整体方案
-
-对于一般企业知识库，可以采用：
-
-> **Webhook / CDC + 定时扫描捕获变化 → 消息队列解耦 → 幂等的文档处理 Worker → 新版本暂存 → 校验后切换 Active Version → 异步删除旧 Chunk → 缓存失效 → 定期全量对账。**
-
-正文修改走重新解析和 Embedding；Metadata 修改尽量原地更新；权限和删除走高优先级通道；Embedding 或 Chunking 整体升级则建立新索引并通过 Alias 灰度切换。
-
-简单来说：**小变化使用增量 Upsert，大变化使用新索引重建；任何更新都要做到版本化、幂等、可回滚，并采用“先写新版本、再切换、最后删旧版本”的方式保证检索连续性和一致性。**
-
-参考：[Amazon Bedrock 增量同步](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-sync.html)、[Amazon Bedrock 删除知识库文档](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent_DeleteKnowledgeBaseDocuments.html)、[Azure AI Search 更新或重建索引](https://learn.microsoft.com/en-us/azure/search/search-howto-reindex)、[Elasticsearch Index Alias](https://www.elastic.co/guide/en/elasticsearch/reference/current/aliases.html)
-
 ## 18. RAG 系统落地的主要难点是什么？
-
-RAG 做出 Demo 并不难，但要在生产环境中持续提供准确、及时、安全且成本可控的回答，需要同时解决数据、检索、生成和工程运营问题。主要难点包括：
 
 ### 1. 数据源质量和文档解析
 
@@ -1245,13 +1064,3 @@ RAG 并不适合所有问题。它擅长基于已有知识回答，但不能自�
 - RAG 是否真正优于传统搜索、规则系统或 SQL 查询。
 
 如果没有明确业务指标，即使技术指标很好，也难以证明系统产生了实际价值。
-
-### 为什么 Demo 容易、生产落地难？
-
-Demo 通常使用少量干净文档、预先准备的问题和单一用户，不需要处理权限、删除、版本冲突、并发和异常数据；生产环境则面对开放式 Query、持续变化的数据以及准确率、延迟、安全和成本的共同约束。
-
-一个推荐的落地顺序是：
-
-**明确业务边界和指标 → 治理数据与权限 → 建立 Naive RAG 基线 → 建设 Golden Dataset → 优化混合检索与 Rerank → 增加引用和拒答 → 建立更新及可观测链路 → 最后按需增加 GraphRAG 或 Agentic RAG。**
-
-简单来说：**RAG 落地最难的通常不是调用 LLM 或接入向量数据库，而是数据质量、召回稳定性、效果评测、动态更新、权限安全和成本之间的系统性权衡。**
