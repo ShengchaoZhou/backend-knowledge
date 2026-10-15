@@ -320,7 +320,7 @@ static final int hash(Object key) {
 
 #### LinkedHashMap
 
-> 多路一组双向链表
+> 多了一组双向链表指针
 
 排序模式
 
